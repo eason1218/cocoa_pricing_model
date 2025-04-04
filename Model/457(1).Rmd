@@ -1,0 +1,240 @@
+---
+title: "STA457"
+author: "Lucas Wang"
+date: "2025-04-04"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(tseries)
+library(forecast)
+
+Daily_Price_CC <- read_csv("~/Desktop/STA457/STA457 Final Project/Daily Prices_ICCO.csv")
+Daily_Price_CC$Date <- as.Date(Daily_Price_CC$Date, format = "%d/%m/%Y")
+Daily_Price_CC$Price <- as.numeric(gsub(",", "", Daily_Price_CC$`ICCO daily price (US$/tonne)`))
+Daily_Price_CC <- Daily_Price_CC %>% select(Date, Price) %>% arrange(Date)
+
+ghana_Dayly_weather <- read_csv("~/Desktop/STA457/STA457 Final Project/Ghana_data.csv")
+ghana_Dayly_weather$DATE <- as.Date(ghana_Dayly_weather$DATE)
+ghana_Dayly_weather$PRCP[is.na(ghana_Dayly_weather$PRCP)] <- 0
+ghana_Dayly_weather <- ghana_Dayly_weather %>%
+  group_by(DATE) %>%
+  summarise(across(c(PRCP, TAVG, TMAX, TMIN), ~ mean(.x, na.rm = TRUE)))
+
+Weather_Price_CC <- left_join(
+  Daily_Price_CC,
+  ghana_Dayly_weather,
+  by = c("Date" = "DATE")
+) %>%
+  arrange(Date) %>%
+  mutate(
+    log_price = log(Price),
+    diff_price = c(NA, diff(Price)),
+    diff_log_price = c(NA, diff(log(Price)))
+  ) %>%
+  drop_na()
+
+ts_price <- ts(Weather_Price_CC$Price, frequency = 365)
+acf(ts_price, main = "ACF of Price")
+pacf(ts_price, main = "PACF of Price")
+adf.test(ts_price)
+
+ts_diff_price <- diff(ts_price)
+acf(ts_diff_price, main = "ACF of diff(Price)")
+pacf(ts_diff_price, main = "PACF of diff(Price)")
+adf.test(ts_diff_price)
+
+ts_diff_log_price <- ts(Weather_Price_CC$diff_log_price, frequency = 365)
+acf(ts_diff_log_price, main = "ACF of diff(log(Price))")
+pacf(ts_diff_log_price, main = "PACF of diff(log(Price))")
+adf.test(ts_diff_log_price)
+
+train_size <- floor(0.95 * nrow(Weather_Price_CC))
+train_data <- Weather_Price_CC[1:train_size, ]
+test_data  <- Weather_Price_CC[(train_size + 1):nrow(Weather_Price_CC), ]
+```
+
+# SARIMA
+```{r}
+train_returns <- diff(log(train_data$Price))
+test_returns  <- diff(log(test_data$Price))
+ts_train_returns <- ts(train_returns, frequency = 365)
+
+arima_model <- Arima(ts_train_returns, order = c(1, 0, 1))
+arima_forecast <- forecast(arima_model, h = nrow(test_data))
+arima_pred_returns <- as.numeric(arima_forecast$mean)
+
+last_train_price <- train_data$Price[nrow(train_data)]
+arima_forecast_prices <- last_train_price * exp(cumsum(arima_pred_returns))
+
+sarima_model <- Arima(
+  ts_train_returns,
+  order = c(1, 0, 1),
+  seasonal = list(order = c(1, 0, 1), period = 7)
+)
+sarima_forecast <- forecast(sarima_model, h = nrow(test_data))
+sarima_pred_returns <- as.numeric(sarima_forecast$mean)
+
+sarima_forecast_prices <- last_train_price * exp(cumsum(sarima_pred_returns))
+sarima_accuracy <- accuracy(sarima_forecast_prices, test_data$Price)
+print("SARIMA Model Performance:")
+print(sarima_accuracy)
+
+actual_test_only <- tibble(
+  Date = test_data$Date,
+  Price = test_data$Price
+)
+
+sarima_df <- tibble(
+  Date = test_data$Date,
+  Forecast = sarima_forecast_prices
+)
+
+ggplot() +
+  geom_line(data = actual_test_only, aes(x = Date, y = Price, color = "Actual"), linewidth = 1.2) +
+  geom_line(data = sarima_df, aes(x = Date, y = Forecast, color = "SARIMA Predicted"), linewidth = 0.9, linetype = "dashed") +
+  scale_color_manual(values = c("Actual" = "black", "SARIMA Predicted" = "orange")) +
+  labs(title = "SARIMA Forecast vs Actual", x = "Date", y = "Price (USD/Tonne)", color = "Legend") +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text = element_text(size = 10)
+  )
+
+```
+
+
+
+# GARCH
+```{r}
+train_returns <- diff(log(train_data$Price))
+test_returns  <- diff(log(test_data$Price))
+test_dates    <- test_data$Date 
+library(rugarch)
+
+garch_spec <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model     = list(armaOrder = c(1, 1), include.mean = TRUE),
+  distribution.model = "norm"
+)
+
+garch_fit <- ugarchfit(spec = garch_spec, data = train_returns)
+garch_forecast <- ugarchforecast(garch_fit, n.ahead = nrow(test_data))
+predicted_returns <- as.numeric(fitted(garch_forecast))
+
+last_train_price <- train_data$Price[nrow(train_data)]
+forecast_prices <- last_train_price * exp(cumsum(predicted_returns))
+
+garch_df <- tibble(
+  Date = test_data$Date,
+  Forecast = forecast_prices
+)
+
+actual_test_only <- tibble(
+  Date = test_data$Date,
+  Price = test_data$Price
+)
+
+garch_accuracy <- accuracy(forecast_prices, test_data$Price)
+print("GARCH Model Performance:")
+print(garch_accuracy)
+ggplot() +
+  geom_line(data = actual_test_only, aes(x = Date, y = Price, color = "Actual"), linewidth = 1.2) +
+  geom_line(data = garch_df, aes(x = Date, y = Forecast, color = "Predicted"), linewidth = 0.9, linetype = "dashed") +
+  scale_color_manual(values = c("Actual" = "black", "Predicted" = "orange")) +
+  labs(
+    title = "GARCH(1,1) Forecast vs Actual (Test Set Only)",
+    x = "Date", y = "Cocoa Price (USD/Tonne)",
+    color = "Legend"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text = element_text(size = 10)
+  )
+
+```
+```{r}
+exter_var <- train_data %>% select(PRCP, TAVG, TMAX, TMIN)
+
+model_arima <- Arima(
+  train_data$diff_log_price,
+  order = c(1, 0, 1),
+  xreg = as.matrix(exter_var),
+  seasonal = FALSE
+)
+summary(model_arima)
+
+model_sarima <- Arima(
+  train_data$diff_log_price,
+  order = c(1, 0, 1),
+  seasonal = list(order = c(1, 0, 1), period = 7),
+  xreg = as.matrix(exter_var)
+)
+summary(model_sarima)
+checkresiduals(model_sarima)
+
+txreg <- as.matrix(test_data %>% select(PRCP, TAVG, TMAX, TMIN))
+arimax_forecast <- forecast(model_arima, xreg = txreg, h = nrow(test_data))
+sarimax_forecast <- forecast(model_sarima, xreg = txreg, h = nrow(test_data))
+
+last_log_price <- tail(train_data$log_price, 1)
+forecast_log_price <- last_log_price + cumsum(arimax_forecast$mean)
+sforecast_log_price <- last_log_price + cumsum(sarimax_forecast$mean)
+
+forecast_price <- exp(forecast_log_price)
+sforecast_price <- exp(sforecast_log_price)
+
+actual_price <- test_data$Price
+arimax_price_accuracy <- accuracy(forecast_price, actual_price)
+sarimax_price_accuracy <- accuracy(sforecast_price, actual_price)
+
+print("SARIMAX Price-Level Accuracy:")
+print(sarimax_price_accuracy)
+
+forecast_dates <- test_data$Date
+sarimax_df <- tibble(
+  Date = forecast_dates,
+  Forecast = sforecast_price  
+)
+actual_test_only <- tibble(
+  Date = test_data$Date,
+  Price = test_data$Price
+)
+
+sarimax_df <- tibble(
+  Date = test_data$Date,
+  Forecast = sforecast_price
+)
+
+ggplot() +
+  geom_line(data = actual_test_only, aes(x = Date, y = Price, color = "Actual"), linewidth = 1.2) +
+  geom_line(data = sarimax_df, aes(x = Date, y = Forecast, color = "Predicted"),
+            linewidth = 0.9, linetype = "dashed") +
+  scale_color_manual(values = c("Actual" = "black", "Predicted" = "orange")) +
+  labs(
+    title = "SARIMAX Forecast vs Actual (Test Set Only)",
+    x = "Date", y = "Cocoa Price (USD/Tonne)",
+    color = "Legend"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text = element_text(size = 10)
+  )
+
+
+
+```
+
+
+
