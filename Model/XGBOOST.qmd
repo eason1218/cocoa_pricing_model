@@ -1,0 +1,115 @@
+---
+  title: "Assignment 2"
+  author: "Your Name"
+  date: "`r Sys.Date()`"
+  format:
+  pdf:
+  keep-md: true
+execute:
+  echo: true
+---
+ 
+ 
+ 
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(forecast)
+library(tseries)
+library(corrplot)
+library(gridExtra)
+library(xgboost)
+
+cocoa_prices <- read.csv("Daily Prices_ICCO.csv", stringsAsFactors = FALSE)
+ghana_weather <- read.csv("Ghana_data.csv", stringsAsFactors = FALSE)
+
+cocoa_prices$Date <- as.Date(cocoa_prices$Date, format = '%d/%m/%Y')
+ghana_weather$DATE <- as.Date(ghana_weather$DATE)
+
+cocoa_prices$Price <- as.numeric(gsub(",", "", cocoa_prices$ICCO.daily.price..US..tonne.))
+
+cocoa_prices <- cocoa_prices %>%
+  select(Date, Price) %>%
+  arrange(Date)
+
+ghana_weather <- ghana_weather %>%
+  group_by(DATE) %>%
+  summarise(across(c(PRCP, TAVG, TMAX, TMIN), mean, na.rm = TRUE))
+
+cocoa_data <- left_join(cocoa_prices, ghana_weather, by = c("Date" = "DATE"))
+cocoa_data$PRCP[is.na(cocoa_data$PRCP)] <- 0
+cocoa_data <- na.omit(cocoa_data)
+head(cocoa_data)
+
+```
+
+```{r}
+cocoa_data$log_price <- log(cocoa_data$Price)
+
+cocoa_data_lagged <- cocoa_data %>%
+  arrange(Date) %>%
+  mutate(
+    lag_1 = lag(log_price, 1),
+    lag_2 = lag(log_price, 2),
+    lag_3 = lag(log_price, 3)
+  ) %>%
+  na.omit()  
+
+cocoa_data_lagged <- cocoa_data_lagged %>%
+  mutate(Month = month(Date))
+
+features <- cocoa_data_lagged %>% select(starts_with("lag_"), PRCP, TAVG, TMAX, TMIN, Month)
+labels <- cocoa_data_lagged$log_price
+dates_all <- cocoa_data_lagged$Date
+feature_matrix <- as.matrix(features)
+
+initial_size <- floor(0.8 * nrow(cocoa_data_lagged))
+forecast_horizon <- nrow(cocoa_data_lagged) - initial_size
+
+predictions <- numeric(forecast_horizon)
+actuals <- numeric(forecast_horizon)
+dates <- as.Date(rep(NA, forecast_horizon))
+
+for (i in 1:forecast_horizon) {
+  train_index <- 1:(initial_size + i - 1)
+  test_index <- initial_size + i
+
+  dtrain <- xgb.DMatrix(data = feature_matrix[train_index, ], label = labels[train_index])
+  dtest <- xgb.DMatrix(data = matrix(feature_matrix[test_index, ], nrow = 1))
+
+  model <- xgboost(data = dtrain, nrounds = 200, objective = "reg:squarederror", verbose = 0)
+
+  pred_log <- predict(model, dtest)
+  predictions[i] <- exp(pred_log)
+  actuals[i] <- exp(labels[test_index])
+  dates[i] <- dates_all[test_index]
+
+  cat(sprintf("Step %d - Date: %s, Actual: %.2f, Predicted: %.2f\n", 
+              i, dates[i], actuals[i], predictions[i]))
+}
+
+rmse <- sqrt(mean((actuals - predictions)^2))
+mae <- mean(abs(actuals - predictions))
+mape <- mean(abs((actuals - predictions) / actuals)) * 100
+
+cat(sprintf("\nXGBoost Walk-Forward Performance:\n RMSE: %.2f\n MAE: %.2f\n MAPE: %.2f%%\n", 
+            rmse, mae, mape))
+
+xgb_walk_df <- tibble(Date = dates,
+                      Actual = actuals,
+                      Predicted = predictions)
+
+ ggplot(xgb_walk_df, aes(x = Date)) +
+  geom_line(aes(y = Actual, color = "Actual"), linewidth = 1) +
+  geom_line(aes(y = Predicted, color = "Predicted"), linewidth = 1, linetype = "dashed") +
+  geom_point(aes(y = Predicted), color = "orange", linewidth = 1.5) +
+  scale_color_manual(values = c("Actual" = "black", "Predicted" = "orange")) +
+  labs(title = "XGBoost Walk-Forward Forecast vs Actual",
+       y = "Cocoa Price (USD/Tonne)", x = "Date",
+       color = "Legend") +
+  theme_minimal() +
+  theme(legend.position = "top")
+
+```
+
+
