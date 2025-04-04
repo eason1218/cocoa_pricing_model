@@ -58,7 +58,7 @@ labels <- cocoa_data_lagged$log_price
 dates_all <- cocoa_data_lagged$Date
 feature_matrix <- as.matrix(features)
 
-initial_size <- floor(0.8 * nrow(cocoa_data_lagged))
+initial_size <- floor(0.95 * nrow(cocoa_data_lagged))
 forecast_horizon <- nrow(cocoa_data_lagged) - initial_size
 
 predictions <- numeric(forecast_horizon)
