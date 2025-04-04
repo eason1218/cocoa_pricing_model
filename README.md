@@ -1,11 +1,8 @@
 # cocoa_pricing_model
 
-data/
-This folder contains the dataset required to run the project.
+The repo is structured as:
 
-model/
-This folder contains two subfolders:
-
-SARIMA/: Includes implementations of SARIMA, GARCH, and Linear Regression models.
-
-XGBOOST/: Contains the XGBoost model.
+-   `data/Daily Prices_ICCO` contains the price of COCOA dataset.
+-   `data/Ghana_data` contains the weather data
+-   `Model/SARIMA_GARCH_LR` contains the SARIMA, GARCH and Linear regression Model.
+-   `Model/XGBOOST` contains the XGBOOST Model.
