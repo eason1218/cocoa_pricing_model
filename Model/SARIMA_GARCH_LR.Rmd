@@ -21,12 +21,12 @@ library(tibble)
 library(ggplot2)
 
 
-Daily_Price_CC <- read_csv("~/Desktop/STA457/STA457 Final Project/Daily Prices_ICCO.csv")
+Daily_Price_CC <- read_csv("Daily Prices_ICCO.csv")
 Daily_Price_CC$Date <- as.Date(Daily_Price_CC$Date, format = "%d/%m/%Y")
 Daily_Price_CC$Price <- as.numeric(gsub(",", "", Daily_Price_CC$`ICCO daily price (US$/tonne)`))
 Daily_Price_CC <- Daily_Price_CC %>% select(Date, Price) %>% arrange(Date)
 
-ghana_Dayly_weather <- read_csv("~/Desktop/STA457/STA457 Final Project/Ghana_data.csv")
+ghana_Dayly_weather <- read_csv("Ghana_data.csv")
 ghana_Dayly_weather$DATE <- as.Date(ghana_Dayly_weather$DATE)
 ghana_Dayly_weather$PRCP <- ifelse(is.na(ghana_Dayly_weather$PRCP), 0, ghana_Dayly_weather$PRCP)
 ghana_Dayly_weather <- ghana_Dayly_weather %>% 
