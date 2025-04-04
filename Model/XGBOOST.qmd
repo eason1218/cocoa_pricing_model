@@ -3,7 +3,6 @@ title: "STA457"
 date: "2025-04-01"
 output: pdf_document
 ---
-
  
  
  
@@ -54,7 +53,7 @@ cocoa_data_lagged <- cocoa_data %>%
 cocoa_data_lagged <- cocoa_data_lagged %>%
   mutate(Month = month(Date))
 
-features <- cocoa_data_lagged %>% select(starts_with("lag_"), PRCP, TAVG, TMAX, TMIN, Month)
+features <- cocoa_data_lagged %>% select(starts_with("lag_"), Price, PRCP, TAVG, TMAX, TMIN, Month)
 labels <- cocoa_data_lagged$log_price
 dates_all <- cocoa_data_lagged$Date
 feature_matrix <- as.matrix(features)
