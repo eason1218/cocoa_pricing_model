@@ -1,13 +1,12 @@
 ---
-  title: "Assignment 2"
-  author: "Your Name"
-  date: "`r Sys.Date()`"
-  format:
-  pdf:
-  keep-md: true
-execute:
-  echo: true
+title: "STA457"
+date: "2025-04-01"
+output: pdf_document
 ---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
  
  
  
